@@ -9,7 +9,7 @@ export default new SuperCommand({
     await globalThis.luogu.waitinit;
     try {
       const data = await fetch3kHomepage();
-      if (data.currentUser === undefined) {
+      if (data.currentUser == null) {
         needLogin();
         return;
       }

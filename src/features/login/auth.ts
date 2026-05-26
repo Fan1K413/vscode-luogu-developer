@@ -55,9 +55,9 @@ export default class LuoguAuthProvider
       finishlock();
     });
     this.secretStorage.onDidChange(async e => {
+      if (e.key !== LuoguAuthProvider.SecretKey) return;
       let finishlock = () => {};
       this.cacheLock = new Promise(resolve => (finishlock = resolve));
-      if (e.key !== LuoguAuthProvider.SecretKey) return;
       const x = await this.secretStorage.get(LuoguAuthProvider.SecretKey);
       if (x)
         this._sessionChangeEmitter.fire({
