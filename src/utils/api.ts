@@ -153,11 +153,11 @@ export const axios = (() => {
     return config;
   });
   axios.interceptors.response.use(
-    res => {
+    async res => {
       const c3vk = extractC3VK(res.headers['set-cookie']);
       if (c3vk !== undefined) {
         c3vkCache = c3vk;
-        globalThis.luogu.authProvider?.updateC3VK(c3vk);
+        await globalThis.luogu.authProvider?.updateC3VK(c3vk);
       }
       if (res.config.myInterceptors_notCheckCookie) return res;
       if (res.config.myInterceptors_cookie?.uid) {
@@ -189,7 +189,7 @@ export const axios = (() => {
         const m = /C3VK=([a-f0-9]+)/.exec(err.response.data);
         if (m) {
           c3vkCache = m[1];
-          globalThis.luogu.authProvider?.updateC3VK(m[1]);
+          await globalThis.luogu.authProvider?.updateC3VK(m[1]);
           if (err.config && err.config.headers) {
             err.config.headers.cookie =
               (err.config.headers.cookie || '') + `;C3VK=${c3vkCache}`;

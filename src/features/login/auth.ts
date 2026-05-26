@@ -102,7 +102,6 @@ export default class LuoguAuthProvider
       LuoguAuthProvider.SecretKey,
       JSON.stringify(session)
     );
-    await this.clearC3VK();
     this.status = true;
     return session;
   }
