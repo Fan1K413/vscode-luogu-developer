@@ -9,3 +9,4 @@ node_modules/
 test.*
 1.html
 .vs/
+.claude/

@@ -54,14 +54,14 @@ export function praseCookie(cookie: string[] | undefined) {
   const s: { uid?: number; clientID?: string } = {};
   if (cookie)
     for (const cookie_info of cookie) {
-      if (cookie_info.match('_uid')?.index == 0) {
-        const match_res = cookie_info.match('(?<==).*?(?=;)');
-        if (match_res) s.uid = +match_res[0];
-      }
-      if (cookie_info.match('__client_id')?.index == 0) {
-        const match_res = cookie_info.match('(?<==).*?(?=;)');
-        if (match_res) s.clientID = match_res[0];
-      }
+      const eqIdx = cookie_info.indexOf('=');
+      if (eqIdx === -1) continue;
+      const name = cookie_info.substring(0, eqIdx).trim();
+      let value = cookie_info.substring(eqIdx + 1);
+      const semiIdx = value.indexOf(';');
+      if (semiIdx !== -1) value = value.substring(0, semiIdx);
+      if (name === '_uid') s.uid = +value;
+      else if (name === '__client_id') s.clientID = value;
     }
   return s;
 }

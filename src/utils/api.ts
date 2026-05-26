@@ -32,6 +32,16 @@ import { needLogin } from './uiUtils';
 
 export const CSRF_TOKEN_REGEX = /<meta name="csrf-token" content="(.*)">/;
 
+function extractC3VK(cookies: string[] | undefined): string | undefined {
+  if (!cookies) return undefined;
+  for (const c of cookies) {
+    const m = /(?:^|;\s*)C3VK=([^;]+)/.exec(c);
+    if (m) return m[1];
+  }
+  return undefined;
+}
+let c3vkCache: string | undefined;
+
 export namespace API {
   export const baseURL = 'https://www.luogu.com.cn/';
   export const apiURL = '/api';
@@ -100,6 +110,7 @@ export const axios = (() => {
     withCredentials: true,
     headers: {
       'X-Requested-With': 'XMLHttpRequest',
+      Accept: 'application/json, */*',
       Referer: 'https://www.luogu.com.cn/'
     },
     proxy: false,
@@ -133,11 +144,15 @@ export const axios = (() => {
     if (config.myInterceptors_cookie === undefined)
       config.myInterceptors_cookie =
         await globalThis.luogu.authProvider.cookie();
-    config.headers.cookie = cookieString(config.myInterceptors_cookie);
+    let cookieStr = cookieString(config.myInterceptors_cookie);
+    if (c3vkCache) cookieStr += `;C3VK=${c3vkCache}`;
+    config.headers.cookie = cookieStr;
     return config;
   });
   axios.interceptors.response.use(
     res => {
+      const c3vk = extractC3VK(res.headers['set-cookie']);
+      if (c3vk !== undefined) c3vkCache = c3vk;
       if (res.config.myInterceptors_notCheckCookie) return res;
       if (res.config.myInterceptors_cookie?.uid) {
         const get = praseCookie(res.headers['set-cookie']);
@@ -150,14 +165,30 @@ export const axios = (() => {
       return res;
     },
     async err => {
-      if (!isAxiosError(err) || !err.response) throw err;
-      if (
-        err.response.data.errorMessage === '未登录' ||
-        err.response.data.data?.errorType ===
-          'LuoguWeb\\Spilopelia\\Exception\\UserUnloginException'
+      if (!isAxiosError(err) || !err.response) {
+        throw err;
+      }
+      if (err.response.data === '未登录' ||
+          err.response.data.errorMessage === '未登录' ||
+          err.response.data.data?.errorType ===
+            'LuoguWeb\\Spilopelia\\Exception\\UserUnloginException'
       ) {
         needLogin();
         throw new Error('未登录', { cause: err });
+      }
+      if (
+        typeof err.response.data === 'string' &&
+        /C3VK=/.test(err.response.data)
+      ) {
+        const m = /C3VK=([a-f0-9]+)/.exec(err.response.data);
+        if (m) {
+          c3vkCache = m[1];
+          if (err.config && err.config.headers) {
+            err.config.headers.cookie =
+              (err.config.headers.cookie || '') + `;C3VK=${c3vkCache}`;
+          }
+          return axios.request(err.config!);
+        }
       }
       if (err.config?.myInterceptors_notCheckCookie) throw err;
       if (err.config?.myInterceptors_cookie?.uid) {
@@ -227,7 +258,13 @@ export const getProblemData = async (pid: string, cid?: number) =>
       LentilleDataResponse<ProblemData>
     >(cid ? API.SEARCH_CONTESTPROBLEM(pid, cid.toString()) : API.SEARCH_PROBLEM(pid))
     .then(x => {
-      return x.data.data;
+      const data = x.data.data;
+      if (data?.problem) {
+        const p = data.problem as unknown as Record<string, unknown>;
+        if (!p.title && p.name) p.title = p.name as string;
+        if (!p.content && p.contenu) p.content = p.contenu;
+      }
+      return data;
     });
 
 export const searchContest = async (cid: number) =>
@@ -417,7 +454,13 @@ export const fetchResult = async (rid: number) =>
 export const fetch3kHomepage = async () =>
   axios
     .get(`/user/1?_contentOnly=1`)
-    .then(data => data?.data)
+    .then(data => {
+      const body = data?.data;
+      return {
+        ...body,
+        currentUser: body?.currentUser ?? body?.user
+      };
+    })
     .catch(err => {
       if (err.response) {
         throw err.response.data;
@@ -614,15 +657,21 @@ export async function submitCode(
     });
 }
 export async function checkCookie(oldCookie: Cookie) {
-  const res = await axios.get(API.CLIENT_ID, {
-    myInterceptors_notCheckCookie: true,
-    myInterceptors_cookie: oldCookie
-  });
-  const newCookie = praseCookie(res.headers['set-cookie']);
-  return (
-    (newCookie.uid ?? oldCookie.uid) === oldCookie.uid &&
-    (newCookie.clientID ?? oldCookie.clientID) === oldCookie.clientID
-  );
+  if (oldCookie.uid === 0) return false;
+  try {
+    const res = await axios.get(`/user/${oldCookie.uid}?_contentOnly=1`, {
+      myInterceptors_cookie: oldCookie,
+      myInterceptors_notCheckCookie: true,
+      maxRedirects: 0,
+      validateStatus: status => status >= 200 && status < 400
+    });
+    if (res.status === 302 || res.status === 301) return false;
+    const body = res.data;
+    const user = body?.currentUser ?? body?.user;
+    return user?.uid === oldCookie.uid;
+  } catch {
+    return false;
+  }
 }
 export const getLoginCaptcha = async (c?: Cookie) =>
     axios
@@ -715,5 +764,7 @@ globalThis.luogu.waitinit.then(() => {
 globalThis.luogu.waitinit
   .then(() => updateCsrfCache())
   .then(() =>
-    globalThis.luogu.authProvider.onDidChangeSessions(() => updateCsrfCache())
+    globalThis.luogu.authProvider.onDidChangeSessions(() => {
+      updateCsrfCache();
+    })
   );
