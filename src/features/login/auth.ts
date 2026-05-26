@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import showLoginView from './ui';
 import { randomUUID } from 'crypto';
-import { checkCookie, genClientID, logout } from '@/utils/api';
+import { checkCookie, genClientID, logout, setC3vkCache } from '@/utils/api';
 
 class LuoguSession implements vscode.AuthenticationSession {
   readonly id = randomUUID();
@@ -19,6 +19,7 @@ export default class LuoguAuthProvider
 {
   static readonly ProviderId = 'luogu-auth';
   static readonly SecretKey = 'luogu-auth';
+  static readonly C3VKKey = 'luogu-auth-c3vk';
   private _sessionChangeEmitter =
     new vscode.EventEmitter<vscode.AuthenticationProviderAuthenticationSessionsChangeEvent>();
   private cache: LuoguSession;
@@ -48,6 +49,9 @@ export default class LuoguAuthProvider
             'luoguLoginStatus',
             false
           );
+      return this.secretStorage.get(LuoguAuthProvider.C3VKKey);
+    }).then(c3vk => {
+      if (c3vk) setC3vkCache(c3vk);
       finishlock();
     });
     this.secretStorage.onDidChange(async e => {
@@ -98,6 +102,7 @@ export default class LuoguAuthProvider
       LuoguAuthProvider.SecretKey,
       JSON.stringify(session)
     );
+    await this.clearC3VK();
     this.status = true;
     return session;
   }
@@ -121,6 +126,7 @@ export default class LuoguAuthProvider
         await this.secretStorage
           .delete(LuoguAuthProvider.SecretKey)
           .then(() => (this.status = false));
+        await this.clearC3VK();
       }
     }
   }
@@ -131,5 +137,12 @@ export default class LuoguAuthProvider
   async cookie(): Promise<Cookie> {
     await this.cacheLock;
     return { uid: +this.cache.account.id, clientID: this.cache.accessToken };
+  }
+  async updateC3VK(value: string) {
+    await this.secretStorage.store(LuoguAuthProvider.C3VKKey, value);
+  }
+  async clearC3VK() {
+    setC3vkCache(undefined);
+    await this.secretStorage.delete(LuoguAuthProvider.C3VKKey);
   }
 }
